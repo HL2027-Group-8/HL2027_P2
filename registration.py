@@ -138,7 +138,7 @@ def apply_nl_transf(fix_img, mov_img, nl_transf):
     the transformed image."""
     return sitk.Resample(mov_img, fix_img, nl_transf, sitk.sitkNearestNeighbor, 0.0, mov_img.GetPixelID())
 
-def seg_atlas(atlas_seg_list):
+def seg_atlas(atlas_seg_list,image_view=False):
     """
     Apply atlas-based segmentation of `im` using the list of CT
     images in `atlas_ct_list` and the corresponding segmentation masks
@@ -147,10 +147,8 @@ def seg_atlas(atlas_seg_list):
     """
     labelForUndecidedPixels = 10
     reference_segmentation= sitk.LabelVoting(atlas_seg_list, labelForUndecidedPixels)
-    # We use the overloaded operator to perform thresholding, another option is to use the BinaryThreshold function.
-    image_viewer = sitk.ImageViewer()
-    image_viewer.SetApplication('/usr/bin/itksnap')
-    image_viewer.Execute(reference_segmentation)
+    if image_view:
+        image_viewer.Execute(reference_segmentation)
     return reference_segmentation
 
 def train_classifier(im_list, labels_list):
@@ -206,7 +204,7 @@ for i in fix_img_indexes:
             image_viewer.Execute(aligned_mask)
 
     # do atlas_based seg
-    est_fix_mask = seg_atlas(atlas_seg_list)
+    est_fix_mask = seg_atlas(atlas_seg_list,image_view)
     # save image
     est_fix_mask_filepath = './data/Resized/COMMON/common_{0}_est_mask_2c.nii.gz'.format(i)
     sitk.WriteImage(est_fix_mask, est_fix_mask_filepath)
