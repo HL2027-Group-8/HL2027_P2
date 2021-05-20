@@ -4,27 +4,19 @@ import SimpleITK as sitk
 import numpy as np
 import os
 
-def resample_image(itk_image, out_spacing=[1.0, 1.0, 1.0], out_size = [512,512,205], is_label=False):
-    original_spacing = itk_image.GetSpacing()
-    original_size = itk_image.GetSize()
-    original_origin = itk_image.GetOrigin()
-
-    resample = sitk.ResampleImageFilter()
-    # resample.SetOutputSpacing(out_spacing)
-    resample.SetOutputSpacing(original_spacing)
-    resample.SetSize(out_size)
-    # resample.SetSize(original_size)
-    resample.SetOutputDirection(itk_image.GetDirection())
-    resample.SetOutputOrigin(itk_image.GetOrigin())
-    resample.SetTransform(sitk.Transform())
-    resample.SetDefaultPixelValue(itk_image.GetPixelIDValue())
+def resample_image(itk_image, out_size = [512,512,205], is_label=False):
 
     if is_label:
-        resample.SetInterpolator(sitk.sitkNearestNeighbor)
+        interpolator_type = sitk.sitkNearestNeighbor
     else:
-        resample.SetInterpolator(sitk.sitkBSpline)
+        interpolator_type = sitk.sitkLinear
 
-    return resample.Execute(itk_image)
+
+    out_spacing = [origin_sz*origin_spc/out_sz  for origin_sz, origin_spc, out_sz in zip(itk_image.GetSize(), itk_image.GetSpacing(), out_size)]
+
+
+    return sitk.Resample(itk_image, out_size, sitk.Transform(), interpolator_type, itk_image.GetOrigin(), out_spacing, itk_image.GetDirection(), 0.0, itk_image.GetPixelIDValue())
+    print_itk_img_info(_new_vol)
 
 
 def print_itk_img_info(itk_img):
@@ -55,7 +47,7 @@ def resample_data_in_dir(input_dir, output_dir, image_view = False, print_info =
         else:
             is_label = False
 
-        new_itk_img = resample_image(itk_img, out_spacing=[1.0, 1.0, 1.0], is_label=is_label)
+        new_itk_img = resample_image(itk_img, is_label=is_label)
 
         if image_view:
             image_viewer.Execute(itk_img)
@@ -70,13 +62,13 @@ def resample_data_in_dir(input_dir, output_dir, image_view = False, print_info =
         # save image
         sitk.WriteImage(new_itk_img, output_path)
 
-# for common data
+# # for common data
 # input_dir = './data/COMMON_images_masks/'
-# output_dir = './data/Resized1/COMMON/'
+# output_dir = './data/Resized/COMMON/'
 # resample_data_in_dir(input_dir, output_dir)
-
-# for group data
-input_dir = './data/GROUP_images/'
-output_dir = './data/Resized1/GROUP8/'
-resample_data_in_dir(input_dir, output_dir)
+#
+# # for group data
+# input_dir = './data/GROUP_images/'
+# output_dir = './data/Resized/GROUP8/'
+# resample_data_in_dir(input_dir, output_dir)
 

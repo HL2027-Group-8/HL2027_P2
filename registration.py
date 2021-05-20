@@ -1,19 +1,13 @@
 #!/usr/bin/env python 
 # -*- coding:utf-8 -*-
-import numpy as np
-import SimpleITK as sitk
 import matplotlib.pyplot as plt
+from data_resample_crop import *
 
 def est_lin_transf(fix_img, mov_img,fix_mask, print_log = False):
     """
     Estimate linear transform to align `mov_img` to `fix_img` and
     return the transform parameters.
     """
-
-    # only supports images with sitkFloat32 and sitkFloat64 pixel types
-    fix_img = sitk.Cast(fix_img, sitk.sitkFloat32)
-    mov_img = sitk.Cast(mov_img, sitk.sitkFloat32)
-    # fix_mask= sitk.Cast(fix_mask, sitk.sitkFloat32)
 
     # initial alignment of the two volumes
     initial_transform = sitk.CenteredTransformInitializer(fix_img,mov_img,sitk.AffineTransform(3),sitk.CenteredTransformInitializerFilter.GEOMETRY)
@@ -47,7 +41,7 @@ def est_lin_transf(fix_img, mov_img,fix_mask, print_log = False):
     registration_method.SetInitialTransform(initial_transform, inPlace=False)
 
     # perform registration
-    final_transform = registration_method.Execute(fix_img,mov_img)
+    final_transform = registration_method.Execute(sitk.Cast(fix_img, sitk.sitkFloat32),sitk.Cast(mov_img, sitk.sitkFloat32))
 
     if print_log:
         print("--------")
@@ -86,15 +80,11 @@ def apply_lin_transf(fix_img, mov_img, lin_transf, is_label=False):
     mov_img_resampled_data = sitk.GetArrayFromImage(mov_img_resampled)
     return mov_img_resampled
 
-def est_nl_transf(fix_img, mov_img,fix_mask):
+def est_nl_transf(fix_img, mov_img,fix_mask,print_log=False):
     """
     Estimate non-linear transform to align `im_mov` to `im_ref` and
     return the transform parameters.
     """
-
-    # only supports images with sitkFloat32 and sitkFloat64 pixel types
-    fix_img = sitk.Cast(fix_img, sitk.sitkFloat32)
-    mov_img = sitk.Cast(mov_img, sitk.sitkFloat32)
 
     # initialize the registration
     reg_method = sitk.ImageRegistrationMethod()
@@ -113,7 +103,7 @@ def est_nl_transf(fix_img, mov_img,fix_mask):
     # use the function 'SetMetricAsDemons' to be able to perform Demons registration.
     # Be aware that you will need to provide a parameter (the intensity difference threshold) as input:
     # during the registration, intensities are considered to be equal if their difference is less than the given threshold.
-    reg_method.SetMetricAsDemons(10)
+    reg_method.SetMetricAsDemons(0.01)
 
     # evaluate the metrics only in the mask, if provided as an input
     reg_method.SetMetricFixedMask(fix_mask)
@@ -126,17 +116,28 @@ def est_nl_transf(fix_img, mov_img,fix_mask):
     reg_method.SetInterpolator(sitk.sitkLinear)
 
     # set a gradient descent optimizer
-    reg_method.SetOptimizerAsGradientDescent(learningRate=1.0, numberOfIterations=10, convergenceMinimumValue=1e-6,
+    reg_method.SetOptimizerAsGradientDescent(learningRate=0.5, numberOfIterations=40, convergenceMinimumValue=1e-6,
                                              convergenceWindowSize=10)
     reg_method.SetOptimizerScalesFromPhysicalShift()
 
-    return reg_method.Execute(fix_img, mov_img)
+    if print_log:
+        print("--------")
+        print("Demons registration:")
+        print('Final metric value: {0}'.format(reg_method.GetMetricValue()))
+        print("Optimizer stop condition: {0}".format(reg_method.GetOptimizerStopConditionDescription()))
+        print("Number of iterations: {0}".format(reg_method.GetOptimizerIteration()))
+        print("--------")
+    return reg_method.Execute(sitk.Cast(fix_img, sitk.sitkFloat32), sitk.Cast(mov_img, sitk.sitkFloat32))
 
-def apply_nl_transf(fix_img, mov_img, nl_transf):
+def apply_nl_transf(fix_img, mov_img, nl_transf, is_label=False):
     """
     Apply given non-linear transform `nl_xfm` to `im_mov` and return
     the transformed image."""
-    return sitk.Resample(mov_img, fix_img, nl_transf, sitk.sitkNearestNeighbor, 0.0, mov_img.GetPixelID())
+    if is_label:
+        output = sitk.Resample(mov_img, fix_img, nl_transf, sitk.sitkNearestNeighbor, 0.0, mov_img.GetPixelID())
+    else:
+        output = sitk.Resample(mov_img, fix_img, nl_transf, sitk.sitkLinear, 0.0, mov_img.GetPixelID())
+    return output
 
 def seg_atlas(atlas_seg_list,image_view=False):
     """
@@ -167,54 +168,70 @@ def pubic_symphysis_selection(im, classifier):
     """
     pass
 
-image_view = False
-fix_img_indexes = [40,41,42]
-for i in fix_img_indexes:
-    # load fix images and masks
-    fix_img_filepath = './data/Resized/COMMON/common_{0}_image.nii.gz'.format(i)
-    fix_mask_filepath = './data/Resized/COMMON/common_{0}_mask_2c.nii.gz'.format(i)
-    fix_img = sitk.ReadImage(fix_img_filepath, sitk.sitkFloat32)
-    fix_mask = sitk.ReadImage(fix_mask_filepath)
+if __name__ == '__main__':
+    image_view = False # if show image via itksnap
 
-    mov_img_indexes = [74,75,76]
-    atlas_ct_list = []
-    atlas_seg_list = []
-    for j in mov_img_indexes:
-        # load moving images and masks
-        mov_img_filepath = './data/Resized/GROUP8/g8_{0}_image.nii.gz'.format(j)
-        mov_mask_filepath = './data/Resized/GROUP8/g8_{0}_mask_2c.nii.gz'.format(j)
-        mov_img = sitk.ReadImage(mov_img_filepath, sitk.sitkFloat32)
-        mov_mask = sitk.ReadImage(mov_mask_filepath)
+    # load data
+    fix_img_indexes = [40,41,42] # common data
+    for i in fix_img_indexes:
+        # load fix images and masks
+        fix_img_filepath = './data/COMMON_images_masks/common_{0}_image.nii.gz'.format(i)
+        fix_mask_filepath = './data/COMMON_images_masks/common_{0}_mask_2c_gt.nii.gz'.format(i) # choose ground true as mask
+        fix_img = sitk.ReadImage(fix_img_filepath, sitk.sitkFloat32)
+        fix_mask = sitk.ReadImage(fix_mask_filepath)
 
-        # do affine registration
-        lin_transf = est_lin_transf(fix_img, mov_img, fix_mask, print_log=True)
-        aligned_image = apply_lin_transf(fix_img, mov_img, lin_transf, is_label=False)
-        aligned_mask = apply_lin_transf(fix_img, mov_mask, lin_transf, is_label=True)
-        atlas_ct_list.append(aligned_image)
-        atlas_seg_list.append(sitk.Cast(aligned_mask,sitk.sitkUInt8))
+        mov_img_indexes = [74,75,76]
+        atlas_ct_list = [] # list of aligned (non-linear and linear) images in group
+        atlas_seg_list = [] # list of aligned masks in group
+        for j in mov_img_indexes:
+            # load moving images and masks
+            mov_img_filepath = './data/GROUP_images/g8_{0}_image.nii.gz'.format(j)
+            mov_mask_filepath = './data/GROUP_images/g8_{0}_mask_2c.nii.gz'.format(j) # semi-auto labeled masks by itk-snap
+            mov_img = sitk.ReadImage(mov_img_filepath, sitk.sitkFloat32)
+            mov_mask = sitk.ReadImage(mov_mask_filepath)
 
-        if image_view:
-            image_viewer = sitk.ImageViewer()
-            image_viewer.SetApplication('/usr/bin/itksnap')
-            image_viewer.Execute(fix_img)
-            image_viewer.Execute(mov_img)
-            image_viewer.Execute(aligned_image)
-            image_viewer.Execute(fix_mask)
-            image_viewer.Execute(mov_mask)
-            image_viewer.Execute(aligned_mask)
+            # data resample to speed up when testing
+            fix_img = resample_image(fix_img, out_size = [128,128,205], is_label=False)
+            mov_img = resample_image(mov_img, out_size = [128,128,205], is_label=False)
+            mov_mask = resample_image(mov_mask, out_size = [128,128,205], is_label=True)
+            fix_mask = resample_image(fix_mask, out_size = [128,128,205], is_label=True)
 
-    # do atlas_based seg
-    est_fix_mask = seg_atlas(atlas_seg_list,image_view)
-    # save image
-    est_fix_mask_filepath = './data/Resized/COMMON/common_{0}_est_mask_2c.nii.gz'.format(i)
-    sitk.WriteImage(est_fix_mask, est_fix_mask_filepath)
+            # do affine registration
+            lin_transf = est_lin_transf(fix_img, mov_img, fix_mask, print_log=True)
+            lin_aligned_image = apply_lin_transf(fix_img, mov_img, lin_transf, is_label=False)
+            lin_aligned_mask = apply_lin_transf(fix_img, mov_mask, lin_transf, is_label=True)
+
+            # do demons registration
+            nl_transf = est_nl_transf(fix_img, lin_aligned_image, fix_mask)
+            nl_aligned_image = apply_nl_transf(fix_img, lin_aligned_image, nl_transf, is_label=False)
+            nl_aligned_mask = apply_nl_transf(fix_img, lin_aligned_mask, nl_transf, is_label=True)
+            atlas_ct_list.append(nl_aligned_image)
+            atlas_seg_list.append(sitk.Cast(nl_aligned_mask,sitk.sitkUInt8))
+
+            if image_view:
+                image_viewer = sitk.ImageViewer()
+                image_viewer.SetApplication('/usr/bin/itksnap')
+                image_viewer.SetTitle('fix_img')
+                image_viewer.Execute(fix_img)
+                image_viewer.SetTitle('mov_img')
+                image_viewer.Execute(mov_img)
+                image_viewer.SetTitle('lin_aligned_image')
+                image_viewer.Execute(lin_aligned_image)
+                image_viewer.SetTitle('nl_aligned_image')
+                image_viewer.Execute(nl_aligned_image)
+                image_viewer.SetTitle('fix_mask')
+                image_viewer.Execute(fix_mask)
+                image_viewer.SetTitle('mov_mask')
+                image_viewer.Execute(mov_mask)
+                image_viewer.SetTitle('lin_aligned_mask')
+                image_viewer.Execute(lin_aligned_mask)
+                image_viewer.SetTitle('nl_aligned_mask')
+                image_viewer.Execute(nl_aligned_mask)
 
 
-# image_viewer = sitk.ImageViewer()
-# image_viewer.SetApplication('/usr/bin/itksnap')
-# # apply lin transf
-# mov_img_resampled = apply_lin_transf(fix_img, mov_img, lin_transf)
-#
-# image_viewer.Execute(fix_img)
-# image_viewer.Execute(mov_img)
-# image_viewer.Execute(mov_img_resampled)
+        # do atlas_based seg
+        est_fix_mask = seg_atlas(atlas_seg_list,image_view)
+
+        # save image
+        est_fix_mask_filepath = './data/COMMON_images_masks/common_{0}_est_mask_2c.nii.gz'.format(i)
+        sitk.WriteImage(est_fix_mask, est_fix_mask_filepath)
