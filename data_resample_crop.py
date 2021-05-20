@@ -29,6 +29,7 @@ def resample_image(itk_image, out_spacing=[1.0, 1.0, 1.0], out_size = [512,512,2
 
 def print_itk_img_info(itk_img):
     selected_image = itk_img
+    print('--------------------')
     print('origin: ' + str(selected_image.GetOrigin()))
     print('size: ' + str(selected_image.GetSize()))
     print('spacing: ' + str(selected_image.GetSpacing()))
