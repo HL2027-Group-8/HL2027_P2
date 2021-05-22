@@ -2,6 +2,7 @@
 # -*- coding:utf-8 -*-
 import matplotlib.pyplot as plt
 from data_resample_crop import *
+from plot import show_overlaid_images
 
 def est_lin_transf(fix_img, mov_img,fix_mask, print_log = False):
     """
@@ -149,6 +150,8 @@ def seg_atlas(atlas_seg_list,image_view=False):
     labelForUndecidedPixels = 10
     reference_segmentation= sitk.LabelVoting(atlas_seg_list, labelForUndecidedPixels)
     if image_view:
+        image_viewer = sitk.ImageViewer()
+        image_viewer.SetApplication('/usr/bin/itksnap')
         image_viewer.Execute(reference_segmentation)
     return reference_segmentation
 
@@ -170,6 +173,7 @@ def pubic_symphysis_selection(im, classifier):
 
 if __name__ == '__main__':
     image_view = False # if show image via itksnap
+    show_reg = False # if show image after linear and nonlinear reg
 
     # load data
     fix_img_indexes = [40,41,42] # common data
@@ -191,10 +195,11 @@ if __name__ == '__main__':
             mov_mask = sitk.ReadImage(mov_mask_filepath)
 
             # data resample to speed up when testing
-            fix_img = resample_image(fix_img, out_size = [128,128,205], is_label=False)
-            mov_img = resample_image(mov_img, out_size = [128,128,205], is_label=False)
-            mov_mask = resample_image(mov_mask, out_size = [128,128,205], is_label=True)
-            fix_mask = resample_image(fix_mask, out_size = [128,128,205], is_label=True)
+            out_size = [512, 512, 205]
+            fix_img = resample_image(fix_img, out_size = out_size, is_label=False)
+            mov_img = resample_image(mov_img, out_size = out_size, is_label=False)
+            mov_mask = resample_image(mov_mask, out_size = out_size, is_label=True)
+            fix_mask = resample_image(fix_mask, out_size = out_size, is_label=True)
 
             # do affine registration
             lin_transf = est_lin_transf(fix_img, mov_img, fix_mask, print_log=True)
@@ -202,7 +207,7 @@ if __name__ == '__main__':
             lin_aligned_mask = apply_lin_transf(fix_img, mov_mask, lin_transf, is_label=True)
 
             # do demons registration
-            nl_transf = est_nl_transf(fix_img, lin_aligned_image, fix_mask)
+            nl_transf = est_nl_transf(fix_img, lin_aligned_image, fix_mask, print_log=True)
             nl_aligned_image = apply_nl_transf(fix_img, lin_aligned_image, nl_transf, is_label=False)
             nl_aligned_mask = apply_nl_transf(fix_img, lin_aligned_mask, nl_transf, is_label=True)
             atlas_ct_list.append(nl_aligned_image)
@@ -228,10 +233,21 @@ if __name__ == '__main__':
                 image_viewer.SetTitle('nl_aligned_mask')
                 image_viewer.Execute(nl_aligned_mask)
 
+            if show_reg:
+                # plot fix, mov, lin_moved, nl_moved overlaid images
+                show_overlaid_images(sitk.GetArrayFromImage(fix_img),
+                                     sitk.GetArrayFromImage(fix_mask)) # fixed image with ground truth
+                show_overlaid_images(sitk.GetArrayFromImage(mov_img),
+                                     sitk.GetArrayFromImage(mov_mask))  # moving image with mask
+                show_overlaid_images(sitk.GetArrayFromImage(lin_aligned_image),
+                                     sitk.GetArrayFromImage(lin_aligned_mask))  # linear-aligned image with mask
+                show_overlaid_images(sitk.GetArrayFromImage(nl_aligned_image),
+                                     sitk.GetArrayFromImage(nl_aligned_mask))  # nonlinear-aligned image with mask
+
 
         # do atlas_based seg
         est_fix_mask = seg_atlas(atlas_seg_list,image_view)
 
-        # save image
-        est_fix_mask_filepath = './data/COMMON_images_masks/common_{0}_est_mask_2c.nii.gz'.format(i)
+        # save estimated mask
+        est_fix_mask_filepath = './data/outputs/common_{0}_est_mask_2c.nii.gz'.format(i)
         sitk.WriteImage(est_fix_mask, est_fix_mask_filepath)
